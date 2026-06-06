@@ -10,7 +10,7 @@
 
 ## Short Summary
 
-`repo-agent-context` builds a local snapshot of repository state from GitHub or GitLab and writes it to plain Markdown and JSON files inside the clone. It is meant for coding agents and local LLMs that need project context without repeatedly querying the hosting service.
+`repo-agent-context` builds a local snapshot of repository state from GitHub or GitLab and writes it to plain Markdown and JSON files inside the local clone. It is meant for coding agents and local LLMs that need project context without repeatedly querying GitHub/GitLab.  This will help save tokens while increasing output quality.
 
 Main advantages:
 
