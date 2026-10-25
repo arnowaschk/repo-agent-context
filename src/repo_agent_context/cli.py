@@ -130,30 +130,60 @@ def build_context_items(
     view_item: Callable[[str], dict[str, Any]],
     render_item: Callable[[dict[str, Any]], str],
     extra_writer: Callable[[str, dict[str, Any]], None] | None = None,
+    include_item: Callable[[dict[str, Any]], bool] | None = None,
+    view_identifier: Callable[[dict[str, Any]], str] | None = None,
+    item_filename: Callable[[dict[str, Any]], str] | None = None,
 ) -> list[dict[str, Any]]:
     items = list_items()
-    write_json(config.out_dir / list_filename, items)
 
     full_items: list[dict[str, Any]] = []
+    included_items: list[dict[str, Any]] = []
     for item in track(items, description=f"Fetching {item_kind}"):
         number_value = item.get("number")
         if number_value is None:
             raise typer.BadParameter(f"{item_kind.capitalize()} entry is missing a number: {item!r}")
 
         number = str(number_value)
-        full = view_item(number)
+        full = view_item(view_identifier(item) if view_identifier is not None else number)
+        if include_item is not None and not include_item(full):
+            continue
+
+        included_items.append(item)
         full_items.append(full)
-        write_json(item_dir / f"{number}.json", full)
-        write_text(item_dir / f"{number}.md", render_item(full))
+        filename = item_filename(item) if item_filename is not None else number
+        write_json(item_dir / f"{filename}.json", full)
+        write_text(item_dir / f"{filename}.md", render_item(full))
 
         if extra_writer is not None:
             extra_writer(number, full)
 
+    write_json(config.out_dir / list_filename, included_items)
     return full_items
+
+
+def _is_open_sourceforge_item(item: dict[str, Any]) -> bool:
+    return item.get("state") == "OPEN"
+
+
+def _sourceforge_issue_identifier(item: dict[str, Any]) -> str:
+    return f"{item.get('tracker', 'tickets')}/{item['number']}"
+
+
+def _sourceforge_issue_filename(item: dict[str, Any]) -> str:
+    return f"{item.get('tracker', 'tickets')}-{item['number']}"
 
 
 def build_issues(config: ContextConfig, provider: RepositoryProvider) -> list[dict[str, Any]]:
     state = "all" if config.include_closed else "open"
+    include_item = None
+    view_identifier = None
+    item_filename = None
+    if provider.name == "sourceforge" and not config.include_closed:
+        include_item = _is_open_sourceforge_item
+    if provider.name == "sourceforge":
+        view_identifier = _sourceforge_issue_identifier
+        item_filename = _sourceforge_issue_filename
+
     return build_context_items(
         config=config,
         list_items=lambda: provider.list_issues(config.upstream, state, config.issue_limit),
@@ -162,6 +192,9 @@ def build_issues(config: ContextConfig, provider: RepositoryProvider) -> list[di
         list_filename="issues.json",
         view_item=lambda number: provider.view_issue(config.upstream, number),
         render_item=render_issue,
+        include_item=include_item,
+        view_identifier=view_identifier,
+        item_filename=item_filename,
     )
 
 
@@ -173,6 +206,10 @@ def build_prs(config: ContextConfig, provider: RepositoryProvider) -> list[dict[
         diff = provider.diff_pr(config.upstream, number)
         write_text(item_dir / f"{number}.diff", diff)
 
+    include_item = None
+    if provider.name == "sourceforge" and not config.include_closed:
+        include_item = _is_open_sourceforge_item
+
     return build_context_items(
         config=config,
         list_items=lambda: provider.list_prs(config.upstream, state, config.pr_limit),
@@ -182,6 +219,7 @@ def build_prs(config: ContextConfig, provider: RepositoryProvider) -> list[dict[
         view_item=lambda number: provider.view_pr(config.upstream, number),
         render_item=render_pr,
         extra_writer=write_diff,
+        include_item=include_item,
     )
 
 

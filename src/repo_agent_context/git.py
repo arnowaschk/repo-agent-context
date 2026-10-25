@@ -347,6 +347,31 @@ def detect_repository_context(
     explicit_provider: str | None = None,
 ) -> RepositoryContext:
     remotes = detect_github_remotes()
-    provider = explicit_provider or remotes.provider or "github"
+    parsed_upstream = parse_remote_url(explicit_upstream) if explicit_upstream else None
+    sourceforge_path = (
+        re.fullmatch(r"/?p/[^/]+/(?:code|git)/?", explicit_upstream.strip()) is not None
+        if explicit_upstream
+        else False
+    )
+    provider = explicit_provider or (
+        parsed_upstream[0] if parsed_upstream else "sourceforge" if sourceforge_path else remotes.provider
+    ) or "github"
     upstream, fork = detect_upstream_and_fork(explicit_upstream, explicit_fork)
+    if explicit_fork is None and remotes.provider and remotes.provider != provider:
+        fork = None
+    if provider == "sourceforge":
+        upstream = sourceforge_project_from_identifier(upstream)
+        fork = sourceforge_project_from_identifier(fork) if fork else None
     return RepositoryContext(provider=provider, upstream=upstream, fork=fork)
+
+
+def sourceforge_project_from_identifier(identifier: str) -> str:
+    parsed = parse_remote_url(identifier)
+    if parsed and parsed[0] == "sourceforge":
+        return parsed[1]
+
+    match = re.fullmatch(r"/?p/(?P<project>[^/]+)/(?:code|git)/?", identifier.strip())
+    if match:
+        return match.group("project")
+
+    return identifier

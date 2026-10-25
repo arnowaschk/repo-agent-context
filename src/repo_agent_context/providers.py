@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol, cast
 from urllib.parse import quote
 
@@ -19,10 +19,10 @@ from repo_agent_context.gitlab import (
     glab_json,
     run_glab,
 )
-from repo_agent_context.sourceforge import sourceforge_json
 from repo_agent_context.gitlab import (
     check_repo_access as check_glab_repo_access,
 )
+from repo_agent_context.sourceforge import sourceforge_json
 
 
 def _normalize_author(raw: dict[str, Any] | None) -> dict[str, Any]:
@@ -505,9 +505,10 @@ class GitLabProvider:
         return run_glab(["mr", "diff", number, "--repo", repo])
 
 
-@dataclass(frozen=True)
+@dataclass
 class SourceForgeProvider:
     name: str = "sourceforge"
+    _tracker_tools_by_repo: dict[str, list[dict[str, str]]] = field(default_factory=dict, init=False, repr=False)
 
     def check_available(self) -> None:
         return None
@@ -515,18 +516,38 @@ class SourceForgeProvider:
     def check_repo_access(self, repo: str) -> None:
         sourceforge_json(repo)
 
-    @staticmethod
-    def _trackers(repo: str) -> list[str]:
+    def _tracker_tools(self, repo: str) -> list[dict[str, str]]:
+        if repo in self._tracker_tools_by_repo:
+            return self._tracker_tools_by_repo[repo]
         project = sourceforge_json(repo)
         tools = project.get("tools", []) if isinstance(project, dict) else []
         trackers = [
-            tool["mount_point"]
+            {"mount_point": tool["mount_point"], "label": str(tool.get("mount_label", ""))}
             for tool in tools
             if isinstance(tool, dict)
             and tool.get("name") == "tickets"
             and isinstance(tool.get("mount_point"), str)
         ] if isinstance(tools, list) else []
+        self._tracker_tools_by_repo[repo] = trackers
+        return trackers
+
+    def _issue_trackers(self, repo: str) -> list[str]:
+        trackers = [
+            tool["mount_point"]
+            for tool in self._tracker_tools(repo)
+            if tool["mount_point"] != "patches" and tool["label"].lower() != "patches"
+        ]
         return trackers or ["tickets"]
+
+    def _patch_tracker(self, repo: str) -> str | None:
+        return next(
+            (
+                tool["mount_point"]
+                for tool in self._tracker_tools(repo)
+                if tool["mount_point"] == "patches" or tool["label"].lower() == "patches"
+            ),
+            None,
+        )
 
     @staticmethod
     def _ticket(
@@ -542,6 +563,7 @@ class SourceForgeProvider:
         return {
             "number": int(number) if number is not None else number,
             "title": raw.get("summary") or raw.get("title") or "",
+            "tracker": tracker,
             "state": _normalize_state(raw.get("status")),
             "author": _normalize_author(author),
             "labels": _normalize_labels(raw.get("labels")),
@@ -555,7 +577,7 @@ class SourceForgeProvider:
     def list_issues(self, repo: str, state: str, limit: int) -> list[dict[str, Any]]:
         page_size = min(max(limit, 1), 100)
         tickets: list[dict[str, Any]] = []
-        for tracker in self._trackers(repo):
+        for tracker in self._issue_trackers(repo):
             for page in range((limit + page_size - 1) // page_size):
                 data = sourceforge_json(f"{repo}/{tracker}?limit={page_size}&page={page}")
                 if not isinstance(data, dict):
@@ -563,14 +585,21 @@ class SourceForgeProvider:
                 rows = data.get("tickets", [])
                 if not isinstance(rows, list) or not rows:
                     break
-                tickets.extend(self._ticket(repo, row, [], tracker) for row in rows if isinstance(row, dict))
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    ticket = self._ticket(repo, row, [], tracker)
+                    tickets.append(ticket)
         if state != "all":
-            tickets = [ticket for ticket in tickets if ticket["state"] == "OPEN"]
+            tickets = [ticket for ticket in tickets if ticket["state"] in {"OPEN", "UNKNOWN"}]
         return tickets[:limit]
 
     def view_issue(self, repo: str, number: str) -> dict[str, Any]:
-        tracker = self._trackers(repo)[0]
-        data = sourceforge_json(f"{repo}/{tracker}/{number}")
+        if "/" in number:
+            tracker, ticket_number = number.rsplit("/", 1)
+        else:
+            tracker, ticket_number = self._issue_trackers(repo)[0], number
+        data = sourceforge_json(f"{repo}/{tracker}/{ticket_number}")
         ticket = data.get("ticket", data) if isinstance(data, dict) else {}
         comments: list[dict[str, Any]] = []
         thread = ticket.get("discussion_thread", {}) if isinstance(ticket, dict) else {}
@@ -586,13 +615,82 @@ class SourceForgeProvider:
         return self._ticket(repo, ticket if isinstance(ticket, dict) else {}, comments, tracker)
 
     def list_prs(self, repo: str, state: str, limit: int) -> list[dict[str, Any]]:
-        return []
+        tracker = self._patch_tracker(repo)
+        if tracker is None:
+            return []
+        page_size = min(max(limit, 1), 100)
+        patches: list[dict[str, Any]] = []
+        for page in range((limit + page_size - 1) // page_size):
+            data = sourceforge_json(f"{repo}/{tracker}?limit={page_size}&page={page}")
+            if not isinstance(data, dict):
+                break
+            rows = data.get("tickets", [])
+            if not isinstance(rows, list) or not rows:
+                break
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                ticket = self._ticket(repo, row, [], tracker)
+                pr = _normalize_pr(
+                    {
+                        "number": ticket["number"],
+                        "title": ticket["title"],
+                        "state": ticket["state"],
+                        "author": ticket["author"],
+                        "labels": ticket["labels"],
+                        "createdAt": ticket["createdAt"],
+                        "updatedAt": ticket["updatedAt"],
+                        "url": ticket["url"],
+                        "body": ticket["body"],
+                    },
+                    comments=[],
+                    files=[],
+                    commits=[],
+                    status_check_rollup=[],
+                )
+                patches.append(pr)
+        if state != "all":
+            patches = [patch for patch in patches if patch["state"] in {"OPEN", "UNKNOWN"}]
+        return patches[:limit]
 
     def view_pr(self, repo: str, number: str) -> dict[str, Any]:
-        raise ValueError("SourceForge does not provide pull requests through its REST API.")
+        tracker = self._patch_tracker(repo)
+        if tracker is None:
+            raise ValueError("This SourceForge project does not have a patches tracker.")
+        data = sourceforge_json(f"{repo}/{tracker}/{number}")
+        ticket = data.get("ticket", data) if isinstance(data, dict) else {}
+        thread = ticket.get("discussion_thread", {}) if isinstance(ticket, dict) else {}
+        posts = thread.get("posts", []) if isinstance(thread, dict) else []
+        comments = [
+            {
+                "author": _normalize_author({"name": post.get("author")}),
+                "createdAt": post.get("timestamp", ""),
+                "body": post.get("text", ""),
+            }
+            for post in posts
+            if isinstance(post, dict) and not post.get("is_meta")
+        ]
+        issue = self._ticket(repo, ticket if isinstance(ticket, dict) else {}, comments, tracker)
+        return _normalize_pr(
+            {
+                "number": issue["number"],
+                "title": issue["title"],
+                "state": issue["state"],
+                "author": issue["author"],
+                "labels": issue["labels"],
+                "createdAt": issue["createdAt"],
+                "updatedAt": issue["updatedAt"],
+                "url": issue["url"],
+                "body": issue["body"],
+            },
+            comments=comments,
+            files=[],
+            commits=[],
+            status_check_rollup=[],
+        )
 
     def diff_pr(self, repo: str, number: str) -> str:
-        raise ValueError("SourceForge does not provide pull requests through its REST API.")
+        return ""
 
 
 def get_provider(name: str) -> RepositoryProvider:

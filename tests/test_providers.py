@@ -26,12 +26,17 @@ def test_sourceforge_provider_lists_tickets_and_reads_discussion(
     def fake_sourceforge_json(path: str) -> object:
         calls.append(path)
         if path == "project":
-            return {"tools": [{"name": "tickets", "mount_point": "bugs"}]}
+            return {
+                "tools": [
+                    {"name": "tickets", "mount_point": "bugs", "mount_label": "Bugs"},
+                    {"name": "tickets", "mount_point": "patches", "mount_label": "Patches"},
+                ]
+            }
         if path == "project/bugs?limit=2&page=0":
             return {
                 "tickets": [
-                    {"ticket_num": 12, "summary": "Open bug", "status": "open"},
-                    {"ticket_num": 11, "summary": "Closed bug", "status": "closed"},
+                    {"ticket_num": 12, "summary": "Open bug"},
+                    {"ticket_num": 11, "summary": "Closed bug"},
                 ]
             }
         if path == "project/bugs/12":
@@ -46,6 +51,17 @@ def test_sourceforge_provider_lists_tickets_and_reads_discussion(
             }
         if path == "project/bugs/_discuss/thread/thread-1":
             return {"posts": [{"author": "alice", "text": "I can reproduce it."}]}
+        if path == "project/patches?limit=10&page=0":
+            return {"tickets": [{"ticket_num": 5, "summary": "Fix scanner handling"}]}
+        if path == "project/patches/5":
+            return {
+                "ticket": {
+                    "ticket_num": 5,
+                    "summary": "Fix scanner handling",
+                    "status": "open",
+                    "description": "Patch proposal",
+                }
+            }
         raise AssertionError(f"Unexpected SourceForge API path: {path}")
 
     monkeypatch.setattr(providers, "sourceforge_json", fake_sourceforge_json)
@@ -54,14 +70,23 @@ def test_sourceforge_provider_lists_tickets_and_reads_discussion(
     issues = provider.list_issues("project", "open", 2)
     issue = provider.view_issue("project", "12")
 
-    assert [row["number"] for row in issues] == [12]
+    assert [row["number"] for row in issues] == [12, 11]
+    assert all(row["state"] == "UNKNOWN" for row in issues)
+    assert issue["state"] == "OPEN"
     assert issue["url"] == "https://sourceforge.net/p/project/bugs/12/"
     assert issue["body"] == "Details"
     assert issue["comments"] == [
         {"author": {"login": "alice"}, "createdAt": "", "body": "I can reproduce it."}
     ]
-    assert provider.list_prs("project", "all", 10) == []
-    assert calls.count("project") == 2
+
+    patches = provider.list_prs("project", "open", 10)
+    patch = provider.view_pr("project", "5")
+    assert [row["number"] for row in patches] == [5]
+    assert patch["title"] == "Fix scanner handling"
+    assert patch["body"] == "Patch proposal"
+    assert patch["url"] == "https://sourceforge.net/p/project/patches/5/"
+    assert provider.diff_pr("project", "5") == ""
+    assert calls.count("project") == 1
 
 
 def test_provider_helper_functions_cover_all_normalization_paths() -> None:

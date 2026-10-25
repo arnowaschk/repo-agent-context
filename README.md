@@ -46,7 +46,7 @@ https://buymeacoffee.com/arnwas
 
 Local GitHub, GitLab, and SourceForge issue context snapshots for coding agents and local LLMs.
 
-`repo-agent-context` builds a local, file-based context snapshot from GitHub, GitLab, or SourceForge repositories. On SourceForge it includes tracker tickets and discussions; SourceForge pull requests are not exposed by its REST API.
+`repo-agent-context` builds a local, file-based context snapshot from GitHub, GitLab, or SourceForge repositories. On SourceForge it includes tracker tickets and discussions, and maps the Patches tracker into the pull request context. SourceForge does not have native pull requests, so patch entries do not include CI, commits, or diffs.
 
 Because the snapshot is local, it is useful before offline coding sessions, for example on planes or in the inevitable Funkloch on Deutsche Bahn tracks.
 
@@ -118,7 +118,7 @@ gh auth login
 glab auth login
 ```
 
-SourceForge projects are detected from remotes such as `https://git.code.sf.net/p/PROJECT/code` and `https://sourceforge.net/git/p/PROJECT/code`. SourceForge snapshots contain tickets and discussions, with no pull request data.
+SourceForge projects are detected from remotes such as `https://git.code.sf.net/p/PROJECT/code` and `https://sourceforge.net/git/p/PROJECT/code`. You can also pass `p/PROJECT/code` to `--upstream`. SourceForge snapshots include tickets and discussions; the Patches tracker is shown in the pull request context.
 
 Check access:
 

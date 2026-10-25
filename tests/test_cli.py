@@ -174,6 +174,64 @@ def test_build_issues_can_include_closed(
     assert calls == [("list", ("owner/repo", "all", 2))]
 
 
+def test_sourceforge_build_filters_closed_tickets_after_loading_details(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    config_factory: Callable[..., ContextConfig],
+) -> None:
+    monkeypatch.setattr(cli, "track", lambda items, description: items)
+
+    class Provider:
+        name = "sourceforge"
+
+        def list_issues(self, repo: str, state: str, limit: int) -> list[dict[str, object]]:
+            assert (repo, state) == ("owner/repo", "open")
+            return [
+                {"number": 446, "title": "Open bug", "state": "UNKNOWN", "tracker": "bugs"},
+                {
+                    "number": 446,
+                    "title": "Feature request",
+                    "state": "UNKNOWN",
+                    "tracker": "feature-requests",
+                },
+                {"number": 445, "title": "Closed bug", "state": "UNKNOWN", "tracker": "bugs"},
+            ]
+
+        def view_issue(self, repo: str, number: str) -> dict[str, object]:
+            tracker, ticket_number = number.rsplit("/", 1)
+            state = "CLOSED-FIXED" if ticket_number == "445" else "OPEN"
+            return {
+                "number": int(ticket_number),
+                "title": f"Ticket {ticket_number}",
+                "tracker": tracker,
+                "state": state,
+            }
+
+    out_dir = tmp_path / "agent_context"
+    result = cli.build_issues(
+        config_factory(
+            out_dir=out_dir,
+            agent_file=tmp_path / "AGENT.md",
+            provider="sourceforge",
+        ),
+        Provider(),  # type: ignore[arg-type]
+    )
+
+    assert [item["tracker"] for item in result] == ["bugs", "feature-requests"]
+    assert json.loads((out_dir / "issues.json").read_text(encoding="utf-8")) == [
+        {"number": 446, "title": "Open bug", "state": "UNKNOWN", "tracker": "bugs"},
+        {
+            "number": 446,
+            "title": "Feature request",
+            "state": "UNKNOWN",
+            "tracker": "feature-requests",
+        },
+    ]
+    assert (out_dir / "issues" / "bugs-446.json").exists()
+    assert (out_dir / "issues" / "feature-requests-446.json").exists()
+    assert not (out_dir / "issues" / "bugs-445.json").exists()
+
+
 def test_build_prs_fetches_status_rollup_and_diff(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

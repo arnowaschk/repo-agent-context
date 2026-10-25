@@ -114,6 +114,62 @@ def test_detect_repository_context_uses_detected_provider(
     assert context.fork == "fork/repo"
 
 
+@pytest.mark.parametrize(
+    ("identifier", "expected"),
+    [
+        ("p/gscan2pdf/code", "gscan2pdf"),
+        ("https://sourceforge.net/p/gscan2pdf/code", "gscan2pdf"),
+        ("https://git.code.sf.net/p/gscan2pdf/code", "gscan2pdf"),
+    ],
+)
+def test_detect_repository_context_normalizes_sourceforge_project(
+    monkeypatch: pytest.MonkeyPatch,
+    identifier: str,
+    expected: str,
+) -> None:
+    monkeypatch.setattr(
+        git,
+        "detect_github_remotes",
+        lambda: git.GitRemotes(origin=None, upstream=None, provider=None),
+    )
+
+    context = git.detect_repository_context(identifier, None, "sourceforge")
+
+    assert context.provider == "sourceforge"
+    assert context.upstream == expected
+
+
+def test_detect_repository_context_infers_sourceforge_from_project_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        git,
+        "detect_github_remotes",
+        lambda: git.GitRemotes(origin=None, upstream=None, provider=None),
+    )
+
+    context = git.detect_repository_context("p/gscan2pdf/code", None, None)
+
+    assert context.provider == "sourceforge"
+    assert context.upstream == "gscan2pdf"
+
+
+def test_detect_repository_context_ignores_origin_from_another_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        git,
+        "detect_github_remotes",
+        lambda: git.GitRemotes(origin="owner/repo", upstream=None, provider="github"),
+    )
+
+    context = git.detect_repository_context("p/gscan2pdf/code", None, "sourceforge")
+
+    assert context.provider == "sourceforge"
+    assert context.upstream == "gscan2pdf"
+    assert context.fork is None
+
+
 def test_remote_name_for_repo_prefers_upstream_then_origin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
