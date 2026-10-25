@@ -22,9 +22,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
 
-      - run: uv run --python ${{ matrix.python-version }} coverage run -m pytest -q
-
-      - run: uv run --python ${{ matrix.python-version }} coverage report
+      - run: uv run --python ${{ matrix.python-version }} pytest -q
 
   quality:
     name: Lint And Type Check
