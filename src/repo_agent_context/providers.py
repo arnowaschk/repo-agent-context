@@ -285,6 +285,9 @@ def _gitlab_project_path(repo: str) -> str:
 
 
 class RepositoryProvider(Protocol):
+    @property
+    def name(self) -> str: ...
+
     def check_available(self) -> None: ...
 
     def check_repo_access(self, repo: str) -> None: ...
