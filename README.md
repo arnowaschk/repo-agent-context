@@ -10,7 +10,7 @@
 
 ## Short Summary
 
-`repo-agent-context` builds a local snapshot of repository state from GitHub or GitLab and writes it to plain Markdown and JSON files inside the clone. It is meant for coding agents and local LLMs that need project context without repeatedly querying the hosting service.
+`repo-agent-context` builds a local snapshot of repository state from GitHub, GitLab, or SourceForge and writes it to plain Markdown and JSON files inside the clone. It is meant for coding agents and local LLMs that need project context without repeatedly querying the hosting service.
 
 Main advantages:
 
@@ -28,6 +28,8 @@ git fetch upstream
 repo-agent-context build
 ```
 
+When any of the provider, upstream, or fork settings are inferred from Git remotes, `build` prints them and asks you to confirm. Pass the settings explicitly to skip that confirmation.
+
 For GitLab, use `glab auth login` and `repo-agent-context build --provider gitlab` though provider detection should be enough usually.
 
 What you can do with it:
@@ -42,9 +44,9 @@ https://buymeacoffee.com/arnwas
 
 ## Long and Exhaustive Version
 
-Local GitHub and GitLab issue and PR / merge request context snapshots for coding agents and local LLMs.
+Local GitHub, GitLab, and SourceForge issue context snapshots for coding agents and local LLMs.
 
-`repo-agent-context` builds a local, file-based context snapshot from a GitHub or GitLab repository's issues and pull requests / merge requests so that coding agents can answer questions about project state, open work, stale merge requests, likely fixes, and good first contributions without repeatedly browsing the hosting service.
+`repo-agent-context` builds a local, file-based context snapshot from GitHub, GitLab, or SourceForge repositories. On SourceForge it includes tracker tickets and discussions; SourceForge pull requests are not exposed by its REST API.
 
 Because the snapshot is local, it is useful before offline coding sessions, for example on planes or in the inevitable Funkloch on Deutsche Bahn tracks.
 
@@ -77,7 +79,7 @@ The tool is especially useful when maintaining or contributing to existing open-
 
 ## What This Is
 
-- A CLI that exports GitHub and GitLab issue and pull request / merge request context into local files.
+- A CLI that exports GitHub and GitLab issue and pull request / merge request context, plus SourceForge tracker tickets, into local files.
 - A way to give coding agents and local LLMs compact project state without repeated browsing.
 - A source of Markdown and JSON that humans can inspect and edit workflows around.
 
@@ -86,7 +88,7 @@ The tool is especially useful when maintaining or contributing to existing open-
 - It is not an agent.
 - It is not an MCP server.
 - It is not an embedding or vector database.
-- It does not replace GitHub or GitLab as the source of truth.
+- It does not replace GitHub, GitLab, or SourceForge as the source of truth.
 
 ## Why Local Files
 
@@ -104,7 +106,7 @@ Local files are easy for terminal agents and local LLM workflows to inspect. The
 - Git
 - GitHub CLI: `gh` for GitHub repositories
 - GitLab CLI: `glab` for GitLab repositories
-- An authenticated CLI session for the provider you use
+- SourceForge uses its public REST API for public project data; no CLI login is required.
 
 Install GitHub CLI from https://cli.github.com/ or GitLab CLI from
 https://docs.gitlab.com/cli/installation/ (or your platform package manager),
@@ -115,6 +117,8 @@ gh auth login
 # or
 glab auth login
 ```
+
+SourceForge projects are detected from remotes such as `https://git.code.sf.net/p/PROJECT/code` and `https://sourceforge.net/git/p/PROJECT/code`. SourceForge snapshots contain tickets and discussions, with no pull request data.
 
 Check access:
 
@@ -451,7 +455,7 @@ repo-agent-context build [OPTIONS]
 Common options:
 
 ```text
---provider              Repository provider: auto, github, or gitlab.
+--provider              Repository provider: auto, github, gitlab, or sourceforge.
 --upstream, -u          Upstream repository, e.g. UPSTREAM_OWNER/oss_repo.
 --fork, -f              Fork repository, e.g. YOUR_NAME/oss_repo.
 --out, -o               Output directory. Default: agent_context

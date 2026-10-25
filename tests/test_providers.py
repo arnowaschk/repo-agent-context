@@ -6,15 +6,62 @@ import pytest
 
 import repo_agent_context.gitlab as gitlab
 import repo_agent_context.providers as providers
-from repo_agent_context.providers import GitLabProvider, get_provider
+from repo_agent_context.providers import GitLabProvider, SourceForgeProvider, get_provider
 
 
 def test_get_provider_returns_expected_backend() -> None:
     assert get_provider("github").name == "github"
     assert get_provider("gitlab").name == "gitlab"
+    assert get_provider("sourceforge").name == "sourceforge"
 
     with pytest.raises(ValueError):
         get_provider("bitbucket")
+
+
+def test_sourceforge_provider_lists_tickets_and_reads_discussion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def fake_sourceforge_json(path: str) -> object:
+        calls.append(path)
+        if path == "project":
+            return {"tools": [{"name": "tickets", "mount_point": "bugs"}]}
+        if path == "project/bugs?limit=2&page=0":
+            return {
+                "tickets": [
+                    {"ticket_num": 12, "summary": "Open bug", "status": "open"},
+                    {"ticket_num": 11, "summary": "Closed bug", "status": "closed"},
+                ]
+            }
+        if path == "project/bugs/12":
+            return {
+                "ticket": {
+                    "ticket_num": 12,
+                    "summary": "Open bug",
+                    "status": "open",
+                    "description": "Details",
+                    "discussion_thread": {"_id": "thread-1"},
+                }
+            }
+        if path == "project/bugs/_discuss/thread/thread-1":
+            return {"posts": [{"author": "alice", "text": "I can reproduce it."}]}
+        raise AssertionError(f"Unexpected SourceForge API path: {path}")
+
+    monkeypatch.setattr(providers, "sourceforge_json", fake_sourceforge_json)
+    provider = SourceForgeProvider()
+
+    issues = provider.list_issues("project", "open", 2)
+    issue = provider.view_issue("project", "12")
+
+    assert [row["number"] for row in issues] == [12]
+    assert issue["url"] == "https://sourceforge.net/p/project/bugs/12/"
+    assert issue["body"] == "Details"
+    assert issue["comments"] == [
+        {"author": {"login": "alice"}, "createdAt": "", "body": "I can reproduce it."}
+    ]
+    assert provider.list_prs("project", "all", 10) == []
+    assert calls.count("project") == 2
 
 
 def test_provider_helper_functions_cover_all_normalization_paths() -> None:

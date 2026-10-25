@@ -19,6 +19,7 @@ from repo_agent_context.gitlab import (
     glab_json,
     run_glab,
 )
+from repo_agent_context.sourceforge import sourceforge_json
 from repo_agent_context.gitlab import (
     check_repo_access as check_glab_repo_access,
 )
@@ -504,11 +505,103 @@ class GitLabProvider:
         return run_glab(["mr", "diff", number, "--repo", repo])
 
 
+@dataclass(frozen=True)
+class SourceForgeProvider:
+    name: str = "sourceforge"
+
+    def check_available(self) -> None:
+        return None
+
+    def check_repo_access(self, repo: str) -> None:
+        sourceforge_json(repo)
+
+    @staticmethod
+    def _trackers(repo: str) -> list[str]:
+        project = sourceforge_json(repo)
+        tools = project.get("tools", []) if isinstance(project, dict) else []
+        trackers = [
+            tool["mount_point"]
+            for tool in tools
+            if isinstance(tool, dict)
+            and tool.get("name") == "tickets"
+            and isinstance(tool.get("mount_point"), str)
+        ] if isinstance(tools, list) else []
+        return trackers or ["tickets"]
+
+    @staticmethod
+    def _ticket(
+        repo: str,
+        raw: dict[str, Any],
+        comments: list[dict[str, Any]],
+        tracker: str = "tickets",
+    ) -> dict[str, Any]:
+        number = raw.get("ticket_num") or raw.get("number")
+        author = raw.get("reported_by") or raw.get("reported_by_id") or "unknown"
+        if isinstance(author, str):
+            author = {"name": author}
+        return {
+            "number": int(number) if number is not None else number,
+            "title": raw.get("summary") or raw.get("title") or "",
+            "state": _normalize_state(raw.get("status")),
+            "author": _normalize_author(author),
+            "labels": _normalize_labels(raw.get("labels")),
+            "createdAt": raw.get("created_date") or "",
+            "updatedAt": raw.get("mod_date") or "",
+            "url": f"https://sourceforge.net/p/{repo}/{tracker}/{number}/" if number is not None else "",
+            "body": raw.get("description") or "",
+            "comments": comments,
+        }
+
+    def list_issues(self, repo: str, state: str, limit: int) -> list[dict[str, Any]]:
+        page_size = min(max(limit, 1), 100)
+        tickets: list[dict[str, Any]] = []
+        for tracker in self._trackers(repo):
+            for page in range((limit + page_size - 1) // page_size):
+                data = sourceforge_json(f"{repo}/{tracker}?limit={page_size}&page={page}")
+                if not isinstance(data, dict):
+                    break
+                rows = data.get("tickets", [])
+                if not isinstance(rows, list) or not rows:
+                    break
+                tickets.extend(self._ticket(repo, row, [], tracker) for row in rows if isinstance(row, dict))
+        if state != "all":
+            tickets = [ticket for ticket in tickets if ticket["state"] == "OPEN"]
+        return tickets[:limit]
+
+    def view_issue(self, repo: str, number: str) -> dict[str, Any]:
+        tracker = self._trackers(repo)[0]
+        data = sourceforge_json(f"{repo}/{tracker}/{number}")
+        ticket = data.get("ticket", data) if isinstance(data, dict) else {}
+        comments: list[dict[str, Any]] = []
+        thread = ticket.get("discussion_thread", {}) if isinstance(ticket, dict) else {}
+        thread_id = thread.get("_id") if isinstance(thread, dict) else None
+        if thread_id:
+            discussion = sourceforge_json(f"{repo}/{tracker}/_discuss/thread/{thread_id}")
+            posts = discussion.get("posts", []) if isinstance(discussion, dict) else []
+            comments = [
+                {"author": _normalize_author({"name": post.get("author")}),
+                 "createdAt": post.get("timestamp", ""), "body": post.get("text", "")}
+                for post in posts if isinstance(post, dict) and not post.get("is_meta")
+            ]
+        return self._ticket(repo, ticket if isinstance(ticket, dict) else {}, comments, tracker)
+
+    def list_prs(self, repo: str, state: str, limit: int) -> list[dict[str, Any]]:
+        return []
+
+    def view_pr(self, repo: str, number: str) -> dict[str, Any]:
+        raise ValueError("SourceForge does not provide pull requests through its REST API.")
+
+    def diff_pr(self, repo: str, number: str) -> str:
+        raise ValueError("SourceForge does not provide pull requests through its REST API.")
+
+
 def get_provider(name: str) -> RepositoryProvider:
     normalized = name.strip().lower()
     if normalized == "github":
         return GitHubProvider()
     if normalized == "gitlab":
         return GitLabProvider()
+    if normalized == "sourceforge":
+        return SourceForgeProvider()
 
     raise ValueError(f"Unsupported repository provider: {name}")

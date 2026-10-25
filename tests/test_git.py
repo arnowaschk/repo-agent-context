@@ -72,6 +72,19 @@ def test_parse_remote_url_returns_none_for_unsupported_url() -> None:
     assert git.parse_remote_url("https://example.com/owner/repo.git") is None
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://git.code.sf.net/p/project/code",
+        "git://git.code.sf.net/p/project/code",
+        "git@git.code.sf.net:p/project/code",
+        "https://sourceforge.net/git/p/project/code",
+    ],
+)
+def test_parse_sourceforge_remote_url(url: str) -> None:
+    assert git.parse_remote_url(url) == ("sourceforge", "project")
+
+
 def test_detect_github_remotes_handles_github_and_gitlab_urls(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

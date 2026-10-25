@@ -49,10 +49,11 @@ def test_normalize_provider_accepts_auto_and_known_values() -> None:
     assert cli.normalize_provider("auto") is None
     assert cli.normalize_provider("github") == "github"
     assert cli.normalize_provider("GitLab") == "gitlab"
+    assert cli.normalize_provider("SourceForge") == "sourceforge"
 
 
 def test_normalize_provider_rejects_unknown_value() -> None:
-    with pytest.raises(typer.BadParameter, match="Provider must be auto, github, or gitlab."):
+    with pytest.raises(typer.BadParameter, match="Provider must be auto, github, gitlab, or sourceforge."):
         cli.normalize_provider("bitbucket")
 
 
@@ -426,6 +427,7 @@ def test_build_command_creates_config_and_runs_build(
             {"provider": "gitlab", "upstream": "owner/repo", "fork": "fork/repo"},
         )(),
     )
+    monkeypatch.setattr(cli.typer, "confirm", lambda *args, **kwargs: True)
     monkeypatch.setattr(cli, "run_build", lambda cfg: seen.append(cfg))
 
     cli.build(

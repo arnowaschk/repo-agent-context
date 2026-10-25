@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "repo-agent-context"
 version = "0.2.3"
-description = "Build local issue and pull request context for coding agents on GitHub and GitLab."
+description = "Build local issue and pull request context for coding agents on GitHub, GitLab, and SourceForge."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -18,6 +18,7 @@ keywords = [
   "coding-agents",
   "github",
   "gitlab",
+  "sourceforge",
   "llm",
   "local-llm",
   "maintainer-tools",
@@ -53,6 +54,7 @@ repo-agent-context = "repo_agent_context.cli:app"
 [dependency-groups]
 dev = [
   "pytest>=8.0.0",
+  "pytest-cov>=6.0.0",
   "ruff>=0.6.0",
   "mypy>=1.10.0",
   "coverage>=7.14.0",
@@ -71,6 +73,9 @@ where = ["src"]
 [tool.ruff]
 line-length = 120
 target-version = "py310"
+
+[tool.pytest.ini_options]
+addopts = ["--cov=repo_agent_context", "--cov-report=term-missing"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
@@ -97,10 +102,10 @@ package = "editable"
 deps = [
   "coverage>=7.14.0",
   "pytest>=8.0.0",
+  "pytest-cov>=6.0.0",
 ]
 commands = [
-  ["coverage", "run", "-m", "pytest", "-q"],
-  ["coverage", "report"],
+  ["pytest", "-q"],
 ]
 
 [tool.tox.env.lint]

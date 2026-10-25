@@ -75,7 +75,7 @@ def get_remote_url(remote_name: str) -> str | None:
 
 def parse_remote_url(url: str) -> tuple[str, str] | None:
     """
-    Convert common GitHub or GitLab remote URLs to `(provider, owner/repo)`.
+    Convert supported hosting remote URLs to `(provider, repository)`.
 
     Supported examples:
     - git@github.com:owner/repo.git
@@ -86,8 +86,15 @@ def parse_remote_url(url: str) -> tuple[str, str] | None:
     - https://gitlab.com/owner/repo
     - ssh://git@github.com/owner/repo.git
     - ssh://git@gitlab.com/owner/repo.git
+    - https://git.code.sf.net/p/project/code
+    - git://git.code.sf.net/p/project/code
     """
     patterns = [
+        ("sourceforge", r"^git@git\.code\.sf\.net:p/(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?$"),
+        ("sourceforge", r"^https://sourceforge\.net/git/p/(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?/?$"),
+        ("sourceforge", r"^(?:git|https?)://git\.code\.sf\.net/p/(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?/?$"),
+        ("sourceforge", r"^ssh://[^@]+@git\.code\.sf\.net/p/(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?/?$"),
+        ("sourceforge", r"^https://sourceforge\.net/p/(?P<owner>[^/]+)/(?:code|git)(?:/.*)?$"),
         ("github", r"^git@github\.com:(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?$"),
         ("gitlab", r"^git@gitlab\.com:(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?$"),
         ("github", r"^https://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?/?$"),
@@ -100,8 +107,8 @@ def parse_remote_url(url: str) -> tuple[str, str] | None:
         match = re.match(pattern, url)
         if match:
             owner = match.group("owner")
-            repo = match.group("repo")
-            return provider, f"{owner}/{repo}"
+            repo = match.groupdict().get("repo")
+            return provider, f"{owner}/{repo}" if repo and provider != "sourceforge" else owner
 
     return None
 
@@ -130,12 +137,12 @@ def remote_name_for_repo(repo: str) -> str | None:
     for preferred_name in ("upstream", "origin"):
         if preferred_name in remote_names:
             url = get_remote_url(preferred_name)
-            if url and github_repo_from_url(url) == repo:
+            if url and (parse_remote_url(url) or (None, None))[1] == repo:
                 return preferred_name
 
     for remote_name in remote_names:
         url = get_remote_url(remote_name)
-        if url and github_repo_from_url(url) == repo:
+        if url and (parse_remote_url(url) or (None, None))[1] == repo:
             return remote_name
 
     return None

@@ -61,8 +61,8 @@ def normalize_provider(provider: str | None) -> str | None:
     normalized = provider.strip().lower()
     if normalized == "auto":
         return None
-    if normalized not in {"github", "gitlab"}:
-        raise typer.BadParameter("Provider must be auto, github, or gitlab.")
+    if normalized not in {"github", "gitlab", "sourceforge"}:
+        raise typer.BadParameter("Provider must be auto, github, gitlab, or sourceforge.")
 
     return normalized
 
@@ -236,7 +236,7 @@ def run_build(config: ContextConfig) -> None:
     console.print(f"Branch-ahead base: [bold]{config.base_branch or 'auto'}[/bold]")
     console.print()
 
-    console.print(f"[bold]Checking {config.provider} CLI...[/bold]")
+    console.print(f"[bold]Checking {config.provider} availability...[/bold]")
     provider.check_available()
 
     console.print(f"[bold]Checking upstream repository:[/bold] {config.upstream}")
@@ -283,7 +283,7 @@ def status(
         str | None,
         typer.Option(
             "--provider",
-            help="Repository provider: auto, github, or gitlab.",
+            help="Repository provider: auto, github, gitlab, or sourceforge.",
         ),
     ] = None,
 ) -> None:
@@ -323,7 +323,7 @@ def build(
         str | None,
         typer.Option(
             "--provider",
-            help="Repository provider: auto, github, or gitlab.",
+            help="Repository provider: auto, github, gitlab, or sourceforge.",
         ),
     ] = None,
     out: Annotated[
@@ -375,6 +375,14 @@ def build(
     except GitDetectionError as exc:
         raise typer.BadParameter(str(exc)) from exc
 
+    if upstream is None or fork is None or normalize_provider(provider) is None:
+        console.print("Resolved repository settings:")
+        console.print(f"  Provider: {detected.provider}")
+        console.print(f"  Upstream: {detected.upstream}")
+        console.print(f"  Fork: {detected.fork or 'none'}")
+        if not typer.confirm("Use these settings to build the context?", default=True):
+            raise typer.Abort()
+
     config = ContextConfig(
         provider=detected.provider,
         upstream=detected.upstream,
@@ -425,7 +433,7 @@ def refresh(
         str | None,
         typer.Option(
             "--provider",
-            help="Repository provider: auto, github, or gitlab.",
+            help="Repository provider: auto, github, gitlab, or sourceforge.",
         ),
     ] = None,
     issue_limit: Annotated[
