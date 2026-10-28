@@ -10,3 +10,7 @@ wheels/
 .venv
 .tox
 .coverage
+
+# Local coding-agent context
+agent_context/
+AGENT.md
