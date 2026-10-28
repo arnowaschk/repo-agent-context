@@ -58,11 +58,20 @@ def extract_references_from_comments(comments: list[dict[str, Any]]) -> set[int]
     return references
 
 
+def issue_identity(issue: dict[str, Any]) -> str:
+    number = issue["number"]
+    tracker = issue.get("tracker")
+    return f"{tracker}/{number}" if tracker else f"#{number}"
+
+
 def render_relations(
     issues: list[dict[str, Any]],
     prs: list[dict[str, Any]],
 ) -> str:
-    issue_numbers = {int(issue["number"]) for issue in issues}
+    issues_by_number: dict[int, list[dict[str, Any]]] = {}
+    for issue in issues:
+        issues_by_number.setdefault(int(issue["number"]), []).append(issue)
+    issue_numbers = set(issues_by_number)
     pr_numbers = {int(pr["number"]) for pr in prs}
 
     lines: list[str] = [
@@ -75,13 +84,26 @@ def render_relations(
         "",
     ]
 
-    pr_issue_relations: list[tuple[int, int, str]] = []
-    pr_pr_relations: list[tuple[int, int, str]] = []
-    issue_issue_relations: list[tuple[int, int, str]] = []
-    issue_pr_relations: list[tuple[int, int, str]] = []
+    pr_issue_relations: list[tuple[str, str, str]] = []
+    pr_pr_relations: list[tuple[str, str, str]] = []
+    issue_issue_relations: list[tuple[str, str, str]] = []
+    issue_pr_relations: list[tuple[str, str, str]] = []
+
+    def issue_label(issue: dict[str, Any]) -> str:
+        return f"Issue {issue_identity(issue)}"
+
+    def issue_target_label(number: int) -> tuple[str, bool]:
+        matches = issues_by_number.get(number, [])
+        if len(matches) > 1:
+            identities = ", ".join(sorted(issue_identity(issue) for issue in matches))
+            return f"Issue #{number} (ambiguous: {identities})", True
+        if matches:
+            return issue_label(matches[0]), False
+        return f"Issue #{number}", False
 
     for pr in prs:
         pr_number = int(pr["number"])
+        pr_label = f"PR #{pr_number}"
 
         body_refs = extract_references_from_text(pr.get("body") or "")
         comment_refs = extract_references_from_comments(pr.get("comments") or [])
@@ -90,53 +112,60 @@ def render_relations(
             if ref == pr_number:
                 continue
             if ref in issue_numbers:
-                pr_issue_relations.append((pr_number, ref, "body"))
+                target, ambiguous = issue_target_label(ref)
+                pr_issue_relations.append((pr_label, target, "body/ambiguous" if ambiguous else "body"))
             elif ref in pr_numbers:
-                pr_pr_relations.append((pr_number, ref, "body"))
+                pr_pr_relations.append((pr_label, f"PR #{ref}", "body"))
             else:
-                pr_issue_relations.append((pr_number, ref, "body/unverified"))
+                pr_issue_relations.append((pr_label, f"Issue #{ref}", "body/unverified"))
 
         for ref in sorted(comment_refs):
             if ref == pr_number:
                 continue
             if ref in issue_numbers:
-                pr_issue_relations.append((pr_number, ref, "comment"))
+                target, ambiguous = issue_target_label(ref)
+                pr_issue_relations.append((pr_label, target, "comment/ambiguous" if ambiguous else "comment"))
             elif ref in pr_numbers:
-                pr_pr_relations.append((pr_number, ref, "comment"))
+                pr_pr_relations.append((pr_label, f"PR #{ref}", "comment"))
             else:
-                pr_issue_relations.append((pr_number, ref, "comment/unverified"))
+                pr_issue_relations.append((pr_label, f"Issue #{ref}", "comment/unverified"))
 
     for issue in issues:
         issue_number = int(issue["number"])
+        source_label = issue_label(issue)
 
         body_refs = extract_references_from_text(issue.get("body") or "")
         comment_refs = extract_references_from_comments(issue.get("comments") or [])
 
         for ref in sorted(body_refs):
-            if ref == issue_number:
+            matches = issues_by_number.get(ref, [])
+            if ref == issue_number and len(matches) == 1:
                 continue
             if ref in pr_numbers:
-                issue_pr_relations.append((issue_number, ref, "body"))
-            elif ref in issue_numbers:
-                issue_issue_relations.append((issue_number, ref, "body"))
+                issue_pr_relations.append((source_label, f"PR #{ref}", "body"))
+            elif matches:
+                target, ambiguous = issue_target_label(ref)
+                issue_issue_relations.append((source_label, target, "body/ambiguous" if ambiguous else "body"))
             else:
-                issue_issue_relations.append((issue_number, ref, "body/unverified"))
+                issue_issue_relations.append((source_label, f"Issue #{ref}", "body/unverified"))
 
         for ref in sorted(comment_refs):
-            if ref == issue_number:
+            matches = issues_by_number.get(ref, [])
+            if ref == issue_number and len(matches) == 1:
                 continue
             if ref in pr_numbers:
-                issue_pr_relations.append((issue_number, ref, "comment"))
-            elif ref in issue_numbers:
-                issue_issue_relations.append((issue_number, ref, "comment"))
+                issue_pr_relations.append((source_label, f"PR #{ref}", "comment"))
+            elif matches:
+                target, ambiguous = issue_target_label(ref)
+                issue_issue_relations.append((source_label, target, "comment/ambiguous" if ambiguous else "comment"))
             else:
-                issue_issue_relations.append((issue_number, ref, "comment/unverified"))
+                issue_issue_relations.append((source_label, f"Issue #{ref}", "comment/unverified"))
 
     def unique_relations(
-        relations: list[tuple[int, int, str]],
-    ) -> list[tuple[int, int, str]]:
-        seen: set[tuple[int, int, str]] = set()
-        result: list[tuple[int, int, str]] = []
+        relations: list[tuple[str, str, str]],
+    ) -> list[tuple[str, str, str]]:
+        seen: set[tuple[str, str, str]] = set()
+        result: list[tuple[str, str, str]] = []
 
         for relation in relations:
             if relation not in seen:
@@ -147,16 +176,16 @@ def render_relations(
 
     lines.extend(["## Pull requests referencing issues", ""])
 
-    for pr_number, issue_number, source in unique_relations(pr_issue_relations):
-        lines.append(f"- PR #{pr_number} references Issue #{issue_number} ({source})")
+    for pr_label, issue_label_text, source in unique_relations(pr_issue_relations):
+        lines.append(f"- {pr_label} references {issue_label_text} ({source})")
 
     if not pr_issue_relations:
         lines.append("_No PR-to-issue references detected._")
 
     lines.extend(["", "## Issues referencing pull requests", ""])
 
-    for issue_number, pr_number, source in unique_relations(issue_pr_relations):
-        lines.append(f"- Issue #{issue_number} references PR #{pr_number} ({source})")
+    for issue_label_text, pr_label, source in unique_relations(issue_pr_relations):
+        lines.append(f"- {issue_label_text} references {pr_label} ({source})")
 
     if not issue_pr_relations:
         lines.append("_No issue-to-PR references detected._")
@@ -164,7 +193,7 @@ def render_relations(
     lines.extend(["", "## Issues referencing issues", ""])
 
     for source_issue, target_issue, source in unique_relations(issue_issue_relations):
-        lines.append(f"- Issue #{source_issue} references Issue #{target_issue} ({source})")
+        lines.append(f"- {source_issue} references {target_issue} ({source})")
 
     if not issue_issue_relations:
         lines.append("_No issue-to-issue references detected._")
@@ -172,7 +201,7 @@ def render_relations(
     lines.extend(["", "## Pull requests referencing pull requests", ""])
 
     for source_pr, target_pr, source in unique_relations(pr_pr_relations):
-        lines.append(f"- PR #{source_pr} references PR #{target_pr} ({source})")
+        lines.append(f"- {source_pr} references {target_pr} ({source})")
 
     if not pr_pr_relations:
         lines.append("_No PR-to-PR references detected._")
@@ -383,7 +412,7 @@ def render_issues_index(issues: list[dict[str, Any]]) -> str:
 
     for issue in sorted(issues, key=lambda item: item.get("updatedAt", ""), reverse=True):
         lines.append(
-            f"- #{issue['number']}: {issue['title']} "
+            f"- {issue_identity(issue)}: {issue['title']} "
             f"[state: {issue.get('state')}] "
             f"[labels: {label_names(issue)}] "
             f"[updated: {issue.get('updatedAt')}]"

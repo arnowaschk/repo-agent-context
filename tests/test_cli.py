@@ -13,6 +13,8 @@ import repo_agent_context.cli as cli
 from repo_agent_context.git import GitDetectionError
 from repo_agent_context.model import ContextConfig
 
+FIXTURES = Path(__file__).parent / "fixtures"
+
 
 def test_version_option_prints_version_and_exits() -> None:
     runner = CliRunner()
@@ -218,18 +220,42 @@ def test_sourceforge_build_filters_closed_tickets_after_loading_details(
     )
 
     assert [item["tracker"] for item in result] == ["bugs", "feature-requests"]
-    assert json.loads((out_dir / "issues.json").read_text(encoding="utf-8")) == [
-        {"number": 446, "title": "Open bug", "state": "UNKNOWN", "tracker": "bugs"},
-        {
-            "number": 446,
-            "title": "Feature request",
-            "state": "UNKNOWN",
-            "tracker": "feature-requests",
-        },
-    ]
+    assert json.loads((out_dir / "issues.json").read_text(encoding="utf-8")) == result
     assert (out_dir / "issues" / "bugs-446.json").exists()
     assert (out_dir / "issues" / "feature-requests-446.json").exists()
     assert not (out_dir / "issues" / "bugs-445.json").exists()
+
+
+def test_sourceforge_aggregate_json_uses_hydrated_ticket_details(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    config_factory: Callable[..., ContextConfig],
+) -> None:
+    monkeypatch.setattr(cli, "track", lambda items, description: items)
+    list_rows = json.loads((FIXTURES / "sourceforge_issue_list.json").read_text(encoding="utf-8"))
+    details = json.loads((FIXTURES / "sourceforge_issue_details.json").read_text(encoding="utf-8"))
+
+    class Provider:
+        name = "sourceforge"
+
+        def list_issues(self, repo: str, state: str, limit: int) -> list[dict[str, object]]:
+            return list_rows
+
+        def view_issue(self, repo: str, number: str) -> dict[str, object]:
+            assert number == "bugs/446"
+            return details[0]
+
+    out_dir = tmp_path / "agent_context"
+    config = config_factory(
+        provider="sourceforge",
+        out_dir=out_dir,
+        agent_file=tmp_path / "AGENT.md",
+        include_closed=True,
+    )
+
+    cli.build_issues(config, Provider())  # type: ignore[arg-type]
+
+    assert json.loads((out_dir / "issues.json").read_text(encoding="utf-8")) == details
 
 
 def test_build_prs_fetches_status_rollup_and_diff(

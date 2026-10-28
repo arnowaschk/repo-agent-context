@@ -54,7 +54,7 @@ The generated context is intended for local use inside a cloned repository. It i
 
 It is intentionally plain Markdown and JSON. There is no hosted service, vector database, background daemon, or agent framework dependency.
 
-The JSON files are written compactly to keep token usage low for downstream agents.
+The JSON files are written compactly to keep token usage low for downstream agents. SourceForge `issues.json` stores hydrated tickets so its state agrees with the per-item files; the other aggregate lists keep their compact list summaries. SourceForge issue records include their tracker in the identity.
 
 ## How It Works
 
@@ -380,6 +380,7 @@ Markdown summary of branches ahead of the selected base branch, including each a
 ### `agent_context/index/relations.md`
 
 Contains detected textual relations between issues and pull requests.
+SourceForge issue identities include the tracker name, and a `#N` reference that matches the same number in multiple trackers is marked ambiguous.
 
 Examples:
 

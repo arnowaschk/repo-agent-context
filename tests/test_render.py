@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import pytest
 
 from repo_agent_context.render import (
@@ -19,6 +22,8 @@ from repo_agent_context.render import (
     render_prs_index,
     render_relations,
 )
+
+FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def test_render_relations_detects_pr_referencing_issue() -> None:
@@ -301,6 +306,27 @@ def test_render_relations_covers_all_relation_sections_and_self_reference_skips(
     assert "PR #20 references PR #10 (comment)" in rendered
     assert "PR #20 references Issue #1 (comment)" in rendered
     assert "PR #10 references PR #10" not in rendered
+
+
+def test_sourceforge_issue_index_qualifies_tracker_identity() -> None:
+    issues = json.loads((FIXTURES / "sourceforge_tracker_collisions.json").read_text(encoding="utf-8"))
+
+    rendered = render_issues_index(issues)
+
+    assert "- bugs/71: Bug ticket 71" in rendered
+    assert "- support-requests/71: Support ticket 71" in rendered
+
+
+def test_sourceforge_relation_marks_duplicate_ticket_numbers_ambiguous() -> None:
+    issues = json.loads((FIXTURES / "sourceforge_tracker_collisions.json").read_text(encoding="utf-8"))
+
+    rendered = render_relations(issues, [])
+
+    assert (
+        "Issue bugs/446 references Issue #71 "
+        "(ambiguous: bugs/71, support-requests/71) (body/ambiguous)"
+    ) in rendered
+    assert "Issue bugs/446 references Issue bugs/71 (body)" not in rendered
 
 
 def test_render_relations_outputs_empty_section_messages() -> None:

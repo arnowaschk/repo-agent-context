@@ -133,6 +133,7 @@ def build_context_items(
     include_item: Callable[[dict[str, Any]], bool] | None = None,
     view_identifier: Callable[[dict[str, Any]], str] | None = None,
     item_filename: Callable[[dict[str, Any]], str] | None = None,
+    aggregate_full_items: bool = False,
 ) -> list[dict[str, Any]]:
     items = list_items()
 
@@ -157,7 +158,8 @@ def build_context_items(
         if extra_writer is not None:
             extra_writer(number, full)
 
-    write_json(config.out_dir / list_filename, included_items)
+    aggregate_items = full_items if aggregate_full_items else included_items
+    write_json(config.out_dir / list_filename, aggregate_items)
     return full_items
 
 
@@ -195,6 +197,7 @@ def build_issues(config: ContextConfig, provider: RepositoryProvider) -> list[di
         include_item=include_item,
         view_identifier=view_identifier,
         item_filename=item_filename,
+        aggregate_full_items=provider.name == "sourceforge",
     )
 
 

@@ -1,0 +1,26 @@
+[
+  {
+    "number": 446,
+    "title": "Bug referencing ticket 71",
+    "state": "CLOSED-FIXED",
+    "tracker": "bugs",
+    "body": "Refs #71",
+    "comments": []
+  },
+  {
+    "number": 71,
+    "title": "Bug ticket 71",
+    "state": "OPEN",
+    "tracker": "bugs",
+    "body": "",
+    "comments": []
+  },
+  {
+    "number": 71,
+    "title": "Support ticket 71",
+    "state": "OPEN",
+    "tracker": "support-requests",
+    "body": "",
+    "comments": []
+  }
+]

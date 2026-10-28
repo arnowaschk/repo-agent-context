@@ -1,0 +1,10 @@
+[
+  {
+    "number": 446,
+    "title": "Wrong page resolution",
+    "state": "CLOSED-FIXED",
+    "tracker": "bugs",
+    "body": "The scan uses the wrong page size.",
+    "comments": []
+  }
+]
